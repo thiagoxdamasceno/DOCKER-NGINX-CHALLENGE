@@ -1,54 +1,63 @@
-version: '3.8'
+version: '3.9'
 
 services:
-  nginx:
-    image: nginx:alpine
-    container_name: nginx
-    ports:
-      - "8080:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-    depends_on:
-      - app
-    networks:
-      - challengedb-network 
-
   app:
-    build: 
-      context: ./node  
-    image: vitorsaop/app:latest
+    build:
+      context: ./node
     container_name: app
-    entrypoint: ["dockerize", "-wait", "tcp://db:3306", "-timeout", "20s", "npm", "start"]
+    restart: always
     networks:
       - challengedb-network
     volumes:
       - ./node:/usr/src/app
-      - /usr/src/app/node_modules  
+      - /usr/src/app/node_modules
     tty: true
-    ports:
-      - "3000:3000"
     depends_on:
+      db:
+        condition: service_healthy
+
+  nginx:
+    build:
+      context: ./nginx
+    container_name: nginx
+    networks:
+      - challengedb-network
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf  # Montando o arquivo nginx.conf
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - app
       - db
 
   db:
-    image: mysql:5.7
-    command: --innodb-use-native-aio=0
+    build: 
+      context: ./mysql
+      dockerfile: Dockerfile
     container_name: db
+    command: --innodb-use-native-aio=0
     restart: always
     tty: true
     volumes:
-      - ./mysql:/docker-entrypoint-initdb.d 
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
     environment:
       - MYSQL_DATABASE=challengedb
       - MYSQL_ROOT_PASSWORD=root
       - MYSQL_USER=user
       - MYSQL_PASSWORD=user
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - challengedb-network
 
 networks:
   challengedb-network:
     driver: bridge
-
-volumes:
-  db_data:
